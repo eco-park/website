@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { createClient } from "@supabase/supabase-js"
+import { CameraStream } from "@/components/camera-stream"
 
 // Define the shape of a parking spot with quadrilateral coordinates
 interface ParkingSpot {
@@ -21,11 +22,14 @@ interface ParkingSpot {
 }
 
 interface SpotEditorProps {
-  imageUrl: string
-  initialSpots?: ParkingSpot[]
-  areaId: number
-  cameraId: number
-  onSave?: (spots: ParkingSpot[]) => void
+  ip: string;
+  port: number;
+  username?: string;
+  password?: string;
+  initialSpots?: ParkingSpot[];
+  areaId: number;
+  cameraId: number;
+  onSave?: (spots: ParkingSpot[]) => void;
 }
 
 // Initialize Supabase client
@@ -33,49 +37,55 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://example.sup
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-export function SpotEditor({ imageUrl, initialSpots = [], areaId, cameraId, onSave }: SpotEditorProps) {
+// Helper to generate the next unique spot ID
+function getNextSpotId(existingIds: string[]): string {
+  let letter = 'A';
+  let number = 1;
+  while (true) {
+    const candidate = `${letter}${number}`;
+    if (!existingIds.includes(candidate)) return candidate;
+    number++;
+    if (number > 9) {
+      number = 1;
+      letter = String.fromCharCode(letter.charCodeAt(0) + 1);
+    }
+  }
+}
+
+export function SpotEditor({ ip, port, username, password, initialSpots = [], areaId, cameraId, onSave }: SpotEditorProps) {
   const [spots, setSpots] = useState<ParkingSpot[]>(initialSpots)
   const [selectedSpotIndex, setSelectedSpotIndex] = useState<number | null>(null)
   const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null)
   const [isDrawing, setIsDrawing] = useState(false)
   const [currentVertices, setCurrentVertices] = useState<{ x: number; y: number }[]>([])
   const [editMode, setEditMode] = useState<"select" | "draw" | "move">("select")
-  const [nextId, setNextId] = useState("A1")
   const [isSaving, setIsSaving] = useState(false)
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 })
 
   const containerRef = useRef<HTMLDivElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
 
-  // Update image size when it loads
+  // Always generate the next unique spot ID based on current spots
+  const nextId = getNextSpotId(spots.map(s => s.id))
+
+  // Sync spots state with initialSpots prop
+  useEffect(() => {
+    setSpots(initialSpots)
+  }, [initialSpots])
+
+  // Update image size when container size changes
   useEffect(() => {
     const updateImageSize = () => {
-      if (imageRef.current) {
+      if (containerRef.current) {
         setImageSize({
-          width: imageRef.current.clientWidth,
-          height: imageRef.current.clientHeight,
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight,
         })
       }
     }
-
-    // Initial size
-    if (imageRef.current && imageRef.current.complete) {
-      updateImageSize()
-    }
-
-    // Add event listener for image load
-    const imageElement = imageRef.current
-    if (imageElement) {
-      imageElement.addEventListener("load", updateImageSize)
-    }
-
-    // Add window resize listener
+    updateImageSize()
     window.addEventListener("resize", updateImageSize)
-
     return () => {
-      if (imageElement) {
-        imageElement.removeEventListener("load", updateImageSize)
-      }
       window.removeEventListener("resize", updateImageSize)
     }
   }, [])
@@ -134,17 +144,7 @@ export function SpotEditor({ imageUrl, initialSpots = [], areaId, cameraId, onSa
           setSelectedSpotIndex(spots.length)
           setCurrentVertices([])
 
-          // Generate next ID
-          const lastId = nextId
-          const letter = lastId.charAt(0)
-          const number = Number.parseInt(lastId.substring(1))
-
-          if (number < 9) {
-            setNextId(`${letter}${number + 1}`)
-          } else {
-            const nextLetter = String.fromCharCode(letter.charCodeAt(0) + 1)
-            setNextId(`${nextLetter}1`)
-          }
+          // No need to generate nextId here, it's always computed from current spots
 
           // Switch back to select mode after drawing
           setEditMode("select")
@@ -339,82 +339,59 @@ export function SpotEditor({ imageUrl, initialSpots = [], areaId, cameraId, onSa
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
+        <div className="space-x-2">
           <Button
             variant={editMode === "select" ? "default" : "outline"}
-            size="sm"
             onClick={() => setEditMode("select")}
           >
             Select
           </Button>
           <Button
             variant={editMode === "draw" ? "default" : "outline"}
-            size="sm"
-            onClick={() => {
-              setEditMode("draw")
-              setCurrentVertices([])
-              setSelectedSpotIndex(null)
-              setSelectedVertexIndex(null)
-            }}
+            onClick={() => setEditMode("draw")}
           >
-            <Plus className="h-4 w-4 mr-2" />
-            Draw Spot
+            Draw
           </Button>
           <Button
             variant={editMode === "move" ? "default" : "outline"}
-            size="sm"
             onClick={() => setEditMode("move")}
-            disabled={selectedSpotIndex === null}
           >
             Move
           </Button>
         </div>
-        <div className="flex items-center space-x-2">
-          <Button variant="outline" size="sm" onClick={handleDeleteSpot} disabled={selectedSpotIndex === null}>
-            <Trash className="h-4 w-4 mr-2" />
-            Delete
+        <div className="space-x-2">
+          <Button variant="outline" onClick={handleCancelDrawing}>
+            Cancel
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={isSaving}>
-            <Save className="h-4 w-4 mr-2" />
-            {isSaving ? "Saving..." : "Save"}
+          <Button onClick={handleSave} disabled={isSaving}>
+            {isSaving ? "Saving..." : "Save Changes"}
           </Button>
         </div>
       </div>
 
-      {editMode === "draw" && (
-        <div className="bg-muted p-2 rounded-md flex items-center justify-between">
-          <p className="text-sm">
-            {currentVertices.length === 0
-              ? "Click to place the first corner of the parking spot"
-              : currentVertices.length === 1
-                ? "Click to place the second corner"
-                : currentVertices.length === 2
-                  ? "Click to place the third corner"
-                  : "Click to place the final corner"}
-            <span className="ml-2 text-muted-foreground">({currentVertices.length}/4 points)</span>
-          </p>
-          <Button variant="ghost" size="sm" onClick={handleCancelDrawing}>
-            <X className="h-4 w-4 mr-2" />
-            Cancel
-          </Button>
-        </div>
-      )}
-
       <div
         ref={containerRef}
-        className="relative border rounded-md overflow-hidden"
-        style={{ cursor: editMode === "draw" ? "crosshair" : "default" }}
+        className="relative aspect-video w-full overflow-hidden rounded-lg border bg-muted"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
       >
-        <img ref={imageRef} src={imageUrl || "/parking-lot.jpg"} alt="Parking Lot" className="w-full h-auto" />
-
-        {/* Render all parking spots */}
+        <CameraStream
+          ip={ip}
+          port={port}
+          username={username}
+          password={password}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        {/* Draw the spots */}
         {spots.map((spot, index) => (
-          <div key={index} className="absolute inset-0 pointer-events-none">
-            <svg width="100%" height="100%" className="absolute inset-0">
+          <div
+            key={spot.id}
+            className={`absolute inset-0 pointer-events-none ${
+              index === selectedSpotIndex ? "ring-2 ring-primary" : ""
+            }`}
+          >
+            <svg className="w-full h-full">
               <polygon
                 points={spot.vertices
                   .map((v) => {
@@ -422,45 +399,40 @@ export function SpotEditor({ imageUrl, initialSpots = [], areaId, cameraId, onSa
                     return `${abs.x},${abs.y}`
                   })
                   .join(" ")}
-                fill={index === selectedSpotIndex ? "rgba(59, 130, 246, 0.2)" : "rgba(16, 185, 129, 0.1)"}
-                stroke={index === selectedSpotIndex ? "#3b82f6" : "#10b981"}
+                fill={spot.status === "available" ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)"}
+                stroke={index === selectedSpotIndex ? "rgb(var(--primary))" : "rgba(0, 0, 0, 0.2)"}
                 strokeWidth="2"
               />
-
-              {/* Render vertices as draggable points */}
-              {spot.vertices.map((vertex, vIndex) => {
+              {spot.vertices.map((vertex, vertexIndex) => {
                 const abs = toAbsoluteCoords(vertex.x, vertex.y)
                 return (
                   <circle
-                    key={vIndex}
+                    key={vertexIndex}
                     cx={abs.x}
                     cy={abs.y}
-                    r={selectedSpotIndex === index && selectedVertexIndex === vIndex ? 6 : 4}
-                    fill={selectedSpotIndex === index && selectedVertexIndex === vIndex ? "#3b82f6" : "#10b981"}
-                    className="pointer-events-none"
+                    r="6"
+                    fill={index === selectedSpotIndex && vertexIndex === selectedVertexIndex ? "rgb(var(--primary))" : "white"}
+                    stroke="rgba(0, 0, 0, 0.2)"
+                    strokeWidth="2"
                   />
                 )
               })}
-
-              {/* Render spot ID in the center */}
+              {/* Add spot ID in the center */}
               <text
-                x={
-                  toAbsoluteCoords(
-                    spot.vertices.reduce((sum, v) => sum + v.x, 0) / spot.vertices.length,
-                    spot.vertices.reduce((sum, v) => sum + v.y, 0) / spot.vertices.length,
-                  ).x
-                }
-                y={
-                  toAbsoluteCoords(
-                    spot.vertices.reduce((sum, v) => sum + v.x, 0) / spot.vertices.length,
-                    spot.vertices.reduce((sum, v) => sum + v.y, 0) / spot.vertices.length,
-                  ).y
-                }
+                x={toAbsoluteCoords(
+                  spot.vertices.reduce((sum, v) => sum + v.x, 0) / spot.vertices.length,
+                  spot.vertices.reduce((sum, v) => sum + v.y, 0) / spot.vertices.length
+                ).x}
+                y={toAbsoluteCoords(
+                  spot.vertices.reduce((sum, v) => sum + v.x, 0) / spot.vertices.length,
+                  spot.vertices.reduce((sum, v) => sum + v.y, 0) / spot.vertices.length
+                ).y}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fill="black"
                 fontWeight="bold"
-                fontSize="12"
+                fontSize="14"
+                className="pointer-events-none"
               >
                 {spot.id}
               </text>
@@ -468,126 +440,90 @@ export function SpotEditor({ imageUrl, initialSpots = [], areaId, cameraId, onSa
           </div>
         ))}
 
-        {/* Render current vertices being placed */}
+        {/* Draw the current spot being created */}
         {currentVertices.length > 0 && (
           <div className="absolute inset-0 pointer-events-none">
-            <svg width="100%" height="100%" className="absolute inset-0">
-              {/* Draw lines between placed vertices */}
-              {currentVertices.length > 1 && (
-                <polyline
-                  points={currentVertices
-                    .map((v) => {
-                      const abs = toAbsoluteCoords(v.x, v.y)
-                      return `${abs.x},${abs.y}`
-                    })
-                    .join(" ")}
-                  fill="none"
-                  stroke="#3b82f6"
-                  strokeWidth="2"
-                  strokeDasharray="4"
-                />
-              )}
-
-              {/* Draw vertices */}
+            <svg className="w-full h-full">
+              <polyline
+                points={currentVertices.map((v) => {
+                  const abs = toAbsoluteCoords(v.x, v.y)
+                  return `${abs.x},${abs.y}`
+                }).join(" ")}
+                fill="none"
+                stroke="rgb(var(--primary))"
+                strokeWidth="2"
+                strokeDasharray="4"
+              />
               {currentVertices.map((vertex, index) => {
                 const abs = toAbsoluteCoords(vertex.x, vertex.y)
-                return <circle key={index} cx={abs.x} cy={abs.y} r={5} fill="#3b82f6" />
+                return (
+                  <circle
+                    key={index}
+                    cx={abs.x}
+                    cy={abs.y}
+                    r="6"
+                    fill="white"
+                    stroke="rgb(var(--primary))"
+                    strokeWidth="2"
+                  />
+                )
               })}
             </svg>
           </div>
         )}
       </div>
 
-      {/* Spot properties editor */}
+      {/* Spot details panel */}
       {selectedSpotIndex !== null && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border rounded-md p-4">
-          <div>
-            <h3 className="text-lg font-medium mb-2">Spot Details</h3>
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <div className="space-y-1">
-                <Label htmlFor="spot-id">Spot ID</Label>
-                <Input
-                  id="spot-id"
-                  value={spots[selectedSpotIndex].id}
-                  onChange={(e) => updateSpotProperty("id", e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="spot-type">Spot Type</Label>
-                <Select
-                  value={spots[selectedSpotIndex].type}
-                  onValueChange={(value) => updateSpotProperty("type", value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="standard">Standard</SelectItem>
-                    <SelectItem value="handicap">Handicap</SelectItem>
-                    <SelectItem value="electric">Electric Vehicle</SelectItem>
-                    <SelectItem value="compact">Compact</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="spot-status">Current Status</Label>
-                <Select
-                  value={spots[selectedSpotIndex].status}
-                  onValueChange={(value) => updateSpotProperty("status", value as any)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="available">Available</SelectItem>
-                    <SelectItem value="occupied">Occupied</SelectItem>
-                    <SelectItem value="reserved">Reserved</SelectItem>
-                    <SelectItem value="maintenance">Maintenance</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <Label htmlFor="spotId">Spot ID</Label>
+              <Input
+                id="spotId"
+                value={spots[selectedSpotIndex].id}
+                onChange={(e) => updateSpotProperty("id", e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="spotType">Type</Label>
+              <Select
+                value={spots[selectedSpotIndex].type}
+                onValueChange={(value) => updateSpotProperty("type", value)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="standard">Standard</SelectItem>
+                  <SelectItem value="handicap">Handicap</SelectItem>
+                  <SelectItem value="electric">Electric</SelectItem>
+                  <SelectItem value="compact">Compact</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="spotStatus">Status</Label>
+              <Select
+                value={spots[selectedSpotIndex].status}
+                onValueChange={(value) => updateSpotProperty("status", value)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="available">Available</SelectItem>
+                  <SelectItem value="occupied">Occupied</SelectItem>
+                  <SelectItem value="reserved">Reserved</SelectItem>
+                  <SelectItem value="maintenance">Maintenance</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-          <div>
-            <h3 className="text-lg font-medium mb-2">Vertex Coordinates</h3>
-            <div className="space-y-2">
-              {spots[selectedSpotIndex].vertices.map((vertex, vIndex) => {
-                const abs = toAbsoluteCoords(vertex.x, vertex.y)
-                return (
-                  <div key={vIndex} className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <Label htmlFor={`vertex-${vIndex}-x`}>Vertex {vIndex + 1} X</Label>
-                      <Input
-                        id={`vertex-${vIndex}-x`}
-                        type="number"
-                        value={Math.round(abs.x)}
-                        onChange={(e) => {
-                          const newSpots = [...spots]
-                          const relX = toRelativeCoords(Number(e.target.value), 0).x
-                          newSpots[selectedSpotIndex].vertices[vIndex].x = relX
-                          setSpots(newSpots)
-                        }}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor={`vertex-${vIndex}-y`}>Vertex {vIndex + 1} Y</Label>
-                      <Input
-                        id={`vertex-${vIndex}-y`}
-                        type="number"
-                        value={Math.round(abs.y)}
-                        onChange={(e) => {
-                          const newSpots = [...spots]
-                          const relY = toRelativeCoords(0, Number(e.target.value)).y
-                          newSpots[selectedSpotIndex].vertices[vIndex].y = relY
-                          setSpots(newSpots)
-                        }}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+          <Button variant="destructive" onClick={handleDeleteSpot}>
+            <Trash className="mr-2 h-4 w-4" />
+            Delete Spot
+          </Button>
         </div>
       )}
     </div>

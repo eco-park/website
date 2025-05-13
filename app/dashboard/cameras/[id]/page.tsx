@@ -22,6 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { CameraStream } from "@/components/camera-stream"
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://example.supabase.co"
@@ -38,18 +39,20 @@ interface ParkingSpot {
 }
 
 export default function CameraPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params)
   const [camera, setCamera] = useState<any>(null)
   const [spots, setSpots] = useState<ParkingSpot[]>([])
   const [loading, setLoading] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const cameraId = Number.parseInt(use(params).id)
+  const cameraId = Number.parseInt(resolvedParams.id)
 
   // Form state for editing
   const [formData, setFormData] = useState({
     name: "",
     ip_address: "",
+    port: 4747,
     username: "",
     password: "",
     area_id: "",
@@ -75,6 +78,7 @@ export default function CameraPage({ params }: { params: Promise<{ id: string }>
           setFormData({
             name: cameraData.name || "",
             ip_address: cameraData.ip_address || "",
+            port: cameraData.port || 554,
             username: cameraData.username || "admin",
             password: "", // Don't show actual password
             area_id: cameraData.area_id?.toString() || "1",
@@ -160,6 +164,7 @@ export default function CameraPage({ params }: { params: Promise<{ id: string }>
         .update({
           name: formData.name,
           ip_address: formData.ip_address,
+          port: Number(formData.port),
           username: formData.username,
           ...(formData.password ? { password: formData.password } : {}), // Only update password if provided
           area_id: Number.parseInt(formData.area_id),
@@ -202,7 +207,7 @@ export default function CameraPage({ params }: { params: Promise<{ id: string }>
         <div className="flex items-center space-x-2"></div>
         <div className="flex items-center justify-between space-y-2">
           <h2 className="text-3xl font-bold tracking-tight">
-            {loading ? "Loading..." : camera?.name || `Camera ${params.id}`}
+            {loading ? "Loading..." : camera?.name || `Camera ${resolvedParams.id}`}
           </h2>
           <div className="flex items-center space-x-2">
             <Button variant="outline" onClick={() => setIsEditing(!isEditing)}>
@@ -232,11 +237,21 @@ export default function CameraPage({ params }: { params: Promise<{ id: string }>
                 </CardHeader>
                 <CardContent>
                   <div className="aspect-video bg-muted rounded-md flex items-center justify-center">
-                    <img
-                      src="/parking-lot.jpg"
-                      alt="Parking Lot Camera Feed"
-                      className="w-full h-full object-cover rounded-md"
-                    />
+                    {camera ? (
+                      <CameraStream
+                        ip={camera.ip_address}
+                        port={camera.port}
+                        username={camera.username}
+                        password={camera.password}
+                        className="rounded-md"
+                      />
+                    ) : (
+                      <img
+                        src="/parking-lot.jpg"
+                        alt="Parking Lot Camera Feed"
+                        className="w-full h-full object-cover rounded-md"
+                      />
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -291,19 +306,43 @@ export default function CameraPage({ params }: { params: Promise<{ id: string }>
                     <CardDescription>Configure and mark parking spots visible from this camera</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <SpotEditor
-                      imageUrl="/parking-lot.jpg"
-                      initialSpots={spots}
-                      areaId={camera?.area_id || Math.ceil(cameraId / 2)}
-                      cameraId={cameraId}
-                      onSave={(updatedSpots) => {
-                        setSpots(updatedSpots)
-                        toast({
-                          title: "Configuration saved",
-                          description: `Successfully saved ${updatedSpots.length} parking spots.`,
-                        })
-                      }}
-                    />
+                    {camera ? (
+                      <SpotEditor
+                        ip={camera.ip_address}
+                        port={camera.port}
+                        username={camera.username}
+                        password={camera.password}
+                        initialSpots={spots}
+                        areaId={camera?.area_id || Math.ceil(cameraId / 2)}
+                        cameraId={cameraId}
+                        onSave={async (updatedSpots) => {
+                          // Re-fetch spots from DB after save
+                          const { data: spotsData, error: spotsError } = await supabase
+                            .from("parking_spots")
+                            .select("*")
+                            .eq("camera_id", cameraId)
+                          if (!spotsError && spotsData) {
+                            const formattedSpots = spotsData.map((spot) => ({
+                              id: spot.spot_id,
+                              vertices: spot.vertices,
+                              type: spot.type,
+                              status: spot.status,
+                              areaId: spot.area_id,
+                              cameraId: spot.camera_id,
+                            }))
+                            setSpots(formattedSpots)
+                          }
+                          toast({
+                            title: "Configuration saved",
+                            description: `Successfully saved ${updatedSpots.length} parking spots.`,
+                          })
+                        }}
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center h-[400px]">
+                        <p className="text-muted-foreground">Loading camera data...</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -401,6 +440,21 @@ export default function CameraPage({ params }: { params: Promise<{ id: string }>
                             placeholder="Camera Model"
                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                             value={formData.model}
+                            onChange={handleInputChange}
+                            disabled={!isEditing}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label htmlFor="port" className="text-sm font-medium">
+                            Port
+                          </label>
+                          <input
+                            id="port"
+                            name="port"
+                            type="number"
+                            placeholder="Port"
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            value={formData.port}
                             onChange={handleInputChange}
                             disabled={!isEditing}
                           />

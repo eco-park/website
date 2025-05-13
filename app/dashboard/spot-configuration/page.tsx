@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { SpotEditor } from "@/components/spot-editor"
 import { toast } from "@/components/ui/use-toast"
+import { CameraStream } from "@/components/camera-stream"
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://example.supabase.co"
@@ -25,6 +26,12 @@ interface CameraData {
   id: number
   name: string
   area_id: number
+  ip_address: string
+  port: number
+  username: string
+  password: string
+  status: string
+  type: string
 }
 
 interface ParkingSpot {
@@ -43,6 +50,7 @@ export default function SpotConfigurationPage() {
   const [selectedCamera, setSelectedCamera] = useState<string>("1")
   const [spots, setSpots] = useState<ParkingSpot[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedCameraData, setSelectedCameraData] = useState<CameraData | null>(null)
 
   // Fetch areas and cameras on component mount
   useEffect(() => {
@@ -124,16 +132,16 @@ export default function SpotConfigurationPage() {
     }
   }, [selectedCamera])
 
-  // Fetch spots for a specific camera and area
+  // Fetch spots for a specific camera
   const fetchSpots = async (cameraId: number, areaId: number) => {
     try {
       const { data, error } = await supabase
         .from("parking_spots")
         .select("*")
         .eq("camera_id", cameraId)
-        .eq("area_id", areaId)
 
       if (error) throw error
+      console.log("SPOTS", data);
 
       if (data) {
         // Transform data to match our component's expected format
@@ -199,32 +207,41 @@ export default function SpotConfigurationPage() {
                             </option>
                           ))}
                         </select>
-                        <Button variant="outline" size="sm">
-                          <Camera className="h-4 w-4 mr-2" />
-                          Switch Camera
-                        </Button>
                       </div>
                     </div>
-
-                    {loading ? (
-                      <div className="h-[400px] flex items-center justify-center">
-                        <p>Loading...</p>
-                      </div>
-                    ) : (
-                      <SpotEditor
-                        imageUrl="/parking-lot.jpg"
-                        initialSpots={spots}
-                        areaId={Number.parseInt(selectedArea)}
-                        cameraId={Number.parseInt(selectedCamera)}
-                        onSave={(updatedSpots) => {
-                          setSpots(updatedSpots)
-                          toast({
-                            title: "Configuration saved",
-                            description: `Successfully saved ${updatedSpots.length} parking spots.`,
-                          })
-                        }}
-                      />
-                    )}
+                    <div className="flex flex-col gap-4">
+                      <Card className="col-span-2">
+                        <CardHeader>
+                          <CardTitle>Parking Spot Configuration</CardTitle>
+                          <CardDescription>Configure and mark parking spots visible from this camera</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {cameras.length > 0 && selectedCamera ? (
+                            <SpotEditor
+                              key={`editor-${selectedCamera}-${area.id}`}
+                              ip={cameras.find((c) => c.id.toString() === selectedCamera)?.ip_address || ""}
+                              port={cameras.find((c) => c.id.toString() === selectedCamera)?.port || 554}
+                              username={cameras.find((c) => c.id.toString() === selectedCamera)?.username || ""}
+                              password={cameras.find((c) => c.id.toString() === selectedCamera)?.password || ""}
+                              initialSpots={spots}
+                              areaId={area.id}
+                              cameraId={parseInt(selectedCamera)}
+                              onSave={async (updatedSpots) => {
+                                await fetchSpots(parseInt(selectedCamera), area.id)
+                                toast({
+                                  title: "Configuration saved",
+                                  description: `Successfully saved ${updatedSpots.length} parking spots.`,
+                                })
+                              }}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Camera className="h-8 w-8 text-muted-foreground" />
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
+import { CameraStream } from "@/components/camera-stream"
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://example.supabase.co"
@@ -32,6 +33,11 @@ interface CameraData {
   name: string
   area_id: number
   status: string
+  ip_address?: string
+  port?: number
+  username?: string
+  password?: string
+  type?: string
   parking_areas?: {
     name: string
   }
@@ -77,7 +83,11 @@ export default function DashboardPage() {
 
         if (areasError) throw areasError
 
-        const { data: camerasData, error: camerasError } = await supabase.from("cameras").select("id, status")
+        const { data: camerasData, error: camerasError } = await supabase
+          .from("cameras")
+          .select("*, parking_areas(name)")
+          .order("id", { ascending: true })
+          .limit(3)
 
         if (camerasError) throw camerasError
 
@@ -118,6 +128,19 @@ export default function DashboardPage() {
             occupancyRate,
             activeCameras,
           })
+        }
+
+        if (camerasData) {
+          // Add default values for required fields if they don't exist
+          const formattedCameras = camerasData.map(camera => ({
+            ...camera,
+            ip_address: camera.ip_address || "192.168.1.20",
+            port: camera.port || 4747,
+            username: camera.username || "admin",
+            password: camera.password || "",
+            type: camera.type || "IP Camera"
+          }))
+          setCameras(formattedCameras)
         }
       } catch (error) {
         console.error("Error fetching data:", error)
@@ -354,7 +377,17 @@ export default function DashboardPage() {
                     {cameras.map((camera) => (
                       <div key={camera.id} className="border rounded-lg overflow-hidden">
                         <div className="aspect-video bg-muted flex items-center justify-center">
-                          <Camera className="h-8 w-8 text-muted-foreground" />
+                          {camera.status === "online" ? (
+                            <CameraStream
+                              ip={camera.ip_address || "192.168.1.20"}
+                              port={camera.port || 4747}
+                              username={camera.username || "admin"}
+                              password={camera.password || ""}
+                              className="rounded-md"
+                            />
+                          ) : (
+                            <Camera className="h-8 w-8 text-muted-foreground" />
+                          )}
                         </div>
                         <div className="p-4">
                           <h3 className="font-medium">{camera.name}</h3>
@@ -367,7 +400,9 @@ export default function DashboardPage() {
                             ></span>
                             <span className="text-sm">{camera.status === "online" ? "Online" : "Offline"}</span>
                             <Link href={`/dashboard/cameras/${camera.id}`} className="ml-auto">
-                              <ArrowUpRight className="h-4 w-4" />
+                              <Button variant="ghost" size="sm" className="opacity-100">
+                                View Details <ArrowUpRight className="ml-1 h-4 w-4" />
+                              </Button>
                             </Link>
                           </div>
                         </div>

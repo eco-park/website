@@ -34,6 +34,7 @@ export function AddCameraForm({ areas, onSuccess }: AddCameraFormProps) {
   const [formData, setFormData] = useState({
     name: "",
     ip_address: "",
+    port: 4747,
     username: "admin",
     password: "",
     area_id: areas.length > 0 ? areas[0].id.toString() : "",
@@ -74,6 +75,7 @@ export function AddCameraForm({ areas, onSuccess }: AddCameraFormProps) {
         .insert({
           name: formData.name,
           ip_address: formData.ip_address,
+          port: Number(formData.port),
           username: formData.username,
           password: formData.password, // In a real app, you'd want to encrypt this
           area_id: Number.parseInt(formData.area_id),
@@ -147,8 +149,22 @@ export function AddCameraForm({ areas, onSuccess }: AddCameraFormProps) {
               />
             </div>
             <div className="space-y-2">
+              <Label htmlFor="port">
+                Port <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="port"
+                name="port"
+                type="number"
+                placeholder="e.g., 554"
+                value={formData.port}
+                onChange={handleChange}
+                required
+              />
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="username">
-                Username <span className="text-red-500">*</span>
+                Username
               </Label>
               <Input
                 id="username"
@@ -156,12 +172,11 @@ export function AddCameraForm({ areas, onSuccess }: AddCameraFormProps) {
                 placeholder="Username for camera access"
                 value={formData.username}
                 onChange={handleChange}
-                required
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">
-                Password <span className="text-red-500">*</span>
+                Password
               </Label>
               <Input
                 id="password"
@@ -170,7 +185,6 @@ export function AddCameraForm({ areas, onSuccess }: AddCameraFormProps) {
                 placeholder="Password for camera access"
                 value={formData.password}
                 onChange={handleChange}
-                required
               />
             </div>
             <div className="space-y-2">

@@ -8,6 +8,7 @@ import { createClient } from "@supabase/supabase-js"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
+import { CameraStream } from "@/components/camera-stream"
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://example.supabase.co"
@@ -19,8 +20,11 @@ interface CameraType {
   name: string
   area_id: number
   status: string
-  type: string
   ip_address: string
+  port: number
+  username: string
+  password: string
+  type: string
   parking_areas?: {
     name: string
   }
@@ -29,6 +33,7 @@ interface CameraType {
 export default function CamerasPage() {
   const [cameras, setCameras] = useState<CameraType[]>([])
   const [loading, setLoading] = useState(true)
+  const [streamErrors, setStreamErrors] = useState<{ [id: number]: boolean }>({})
 
   useEffect(() => {
     const fetchCameras = async () => {
@@ -54,6 +59,10 @@ export default function CamerasPage() {
 
     fetchCameras()
   }, [])
+
+  const handleStreamError = (id: number) => {
+    setStreamErrors((prev) => ({ ...prev, [id]: true }))
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -81,7 +90,25 @@ export default function CamerasPage() {
                   className="border rounded-lg overflow-hidden group hover:border-primary transition-colors"
                 >
                   <div className="aspect-video bg-muted flex items-center justify-center">
-                    <Camera className="h-8 w-8 text-muted-foreground" />
+                    {camera.status === "online" ? (
+                      <>
+                        <CameraStream
+                          ip={camera.ip_address}
+                          port={camera.port}
+                          username={camera.username}
+                          password={camera.password}
+                          className="rounded-md"
+                          onError={() => handleStreamError(camera.id)}
+                        />
+                        {streamErrors[camera.id] && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-white/80">
+                            <span className="text-red-500 text-sm">Stream failed to load</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <Camera className="h-8 w-8 text-muted-foreground" />
+                    )}
                   </div>
                   <div className="p-4">
                     <h3 className="font-medium">{camera.name}</h3>
